@@ -1,0 +1,64 @@
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract DEX {
+    address public admin;
+    mapping (address => mapping (address => uint256)) public tokens;
+    mapping (bytes32 => bool) public orders;
+
+    event Deposit(address indexed token, address indexed user, uint256 amount, uint256 balance);
+    event Withdraw(address indexed token, address indexed user, uint256 amount, uint256 balance);
+    event Order(address indexed user, bytes32 orderId, address tokenBuy, uint256 amountBuy, address tokenSell, uint256 amountSell);
+    event CancelOrder(bytes32 indexed orderId);
+
+    constructor() {
+        admin = msg.sender;
+    }
+
+    function deposit(address token, uint256 amount) public {
+        require(IERC20(token).transferFrom(msg.sender, address(this), amount), "Deposit failed.");
+        tokens[token][msg.sender] += amount;
+        emit Deposit(token, msg.sender, amount, tokens[token][msg.sender]);
+    }
+
+    function withdraw(address token, uint256 amount) public {
+        require(tokens[token][msg.sender] >= amount, "Insufficient balance.");
+        tokens[token][msg.sender] -= amount;
+        require(IERC20(token).transfer(msg.sender, amount), "Withdrawal failed.");
+        emit Withdraw(token, msg.sender, amount, tokens[token][msg.sender]);
+    }
+
+    function makeOrder(address tokenBuy, uint256 amountBuy, address tokenSell, uint256 amountSell) public {
+        bytes32 orderId = keccak256(abi.encodePacked(msg.sender, tokenBuy, amountBuy, tokenSell, amountSell));
+        orders[orderId] = true;
+        emit Order(msg.sender, orderId, tokenBuy, amountBuy, tokenSell, amountSell);
+    }
+
+    function cancelOrder(address user, address tokenBuy, uint256 amountBuy, address tokenSell, uint256 amountSell) public {
+        bytes32 orderId = keccak256(abi.encodePacked(user, tokenBuy, amountBuy, tokenSell, amountSell));
+        require(orders[orderId] && msg.sender == user, "Invalid order or unauthorized.");
+        orders[orderId] = false;
+        emit CancelOrder(orderId);
+    }
+
+    function fillOrder(address user, bytes32 orderId, address tokenBuy, uint256 amountBuy, address tokenSell, uint256 amountSell) public {
+        require(orders[orderId], "Invalid order.");
+        require(tokens[tokenBuy][msg.sender] >= amountBuy, "Insufficient balance.");
+        require(tokens[tokenSell][user] >= amountSell, "Insufficient balance.");
+        require(IERC20(tokenBuy).transferFrom(msg.sender, user, amountBuy), "Token transfer failed.");
+        require(IERC20(tokenSell).transferFrom(user, msg.sender, amountSell), "Token transfer failed.");
+        tokens[tokenBuy][msg.sender] -= amountBuy;
+        tokens[tokenSell][user] -= amountSell;
+        emit CancelOrder(orderId);
+    }
+
+    function isAdmin() public view returns (bool) {
+        return msg.sender == admin;
+    }
+
+    function changeAdmin(address newAdmin) public {
+        require(msg.sender == admin, "Unauthorized.");
+        admin = newAdmin;
+    }
+}
